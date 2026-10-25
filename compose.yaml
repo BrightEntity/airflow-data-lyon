@@ -18,13 +18,14 @@ x-common-env-vars: &common-env-vars
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   AWS_S3_BUCKET: ${AWS_S3_BUCKET}
-  AWS_S3_URL: ${AWS_S3_URL}
+  AWS_S3_URL: ${AWS_S3_URL:-http://garaged:3900}
   DB_HOST: ${DB_HOST}
   DB_PORT: ${DB_PORT}
   DB_NAME: ${DB_NAME}
   DB_SCHEMA: ${DB_SCHEMA}
   DB_USER: ${DB_USER}
   DB_PASSWORD: ${DB_PASSWORD}
+  GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET}
 
 networks:
   airflow:
@@ -37,8 +38,52 @@ volumes:
     driver: local
   transport_postgres_data:
     driver: local
+  garage_data:
+    driver: local
+  garage_meta:
+    driver: local
+
+configs:
+  garage_config:
+    content: |
+      metadata_dir = "/var/lib/garage/meta"
+      data_dir = "/var/lib/garage/data"
+      db_engine = "sqlite"
+
+      replication_factor = 1
+
+      rpc_bind_addr = "[::]:3901"
+      rpc_public_addr = "127.0.0.1:3901"
+      rpc_secret = "${GARAGE_RPC_SECRET:?GARAGE_RPC_SECRET must be set in .env}"
+
+      [s3_api]
+      s3_region = "garage"
+      api_bind_addr = "[::]:3900"
 
 services:
+  garaged:
+    image: dxflrs/garage:v2.3.0
+    command:
+      - /garage
+      - server
+      - --single-node
+      - --default-bucket
+    restart: unless-stopped
+    networks:
+      - airflow
+    ports:
+      - "127.0.0.1:3900:3900"
+    environment:
+      GARAGE_DEFAULT_ACCESS_KEY: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set in .env}
+      GARAGE_DEFAULT_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set in .env}
+      GARAGE_DEFAULT_BUCKET: ${AWS_S3_BUCKET:-raw}
+    configs:
+      - source: garage_config
+        target: /etc/garage.toml
+    volumes:
+      - garage_data:/var/lib/garage/data
+      - garage_meta:/var/lib/garage/meta
+
   postgres:
     image: docker.io/postgres:15
     restart: unless-stopped

@@ -15,6 +15,9 @@ dbt.
   service `postgres_transport` et sur le port local `5433`.
 - **PostgreSQL Airflow** stocke les métadonnées Airflow et est exposé sur le
   port local `5432`.
+- **Garage** est démarré par Compose comme stockage compatible S3, accessible
+  depuis les conteneurs sur `http://garaged:3900` et depuis l'hôte sur
+  `http://localhost:3900`. Ses données sont persistées dans des volumes Docker.
 - **dbt** exécute les modèles du projet `include/dbt`.
 - **Streamlit** est une application distincte, démarrée à la demande sur le
   port local `8501`.
@@ -28,8 +31,6 @@ standardisation PostgreSQL. Le DAG `dag_core_refresh` lance les modèles dbt.
 - Docker Desktop démarré.
 - [Astro CLI](https://www.astronomer.io/docs/astro/cli/install-cli) installé.
 - PowerShell pour utiliser `start-astro.ps1`.
-- Un conteneur Garage déjà créé sous le nom `garaged`, avec un endpoint S3
-  accessible depuis le réseau Docker.
 - Des identifiants API Data Grand Lyon et des identifiants pour le stockage S3
   et PostgreSQL.
 
@@ -46,6 +47,7 @@ ne pas y mettre de secrets dans un fichier suivi par Git.
 | `AWS_SECRET_ACCESS_KEY` | Clé secrète du stockage S3 |
 | `AWS_S3_BUCKET` | Nom du bucket qui reçoit les fichiers bruts |
 | `AWS_S3_URL` | Endpoint S3 joignable depuis les conteneurs Airflow, par exemple `http://garaged:3900` |
+| `GARAGE_RPC_SECRET` | Secret hexadécimal de 64 caractères pour les communications internes de Garage |
 | `DB_HOST` | Hôte PostgreSQL joignable depuis Docker (par exemple `postgres_transport` pour le service local) |
 | `DB_PORT` | Port PostgreSQL depuis le réseau Docker (généralement `5432` pour `postgres_transport`) |
 | `DB_NAME` | Nom de la base de données de transport |
@@ -65,13 +67,17 @@ Dans PowerShell, depuis la racine du projet :
 .\start-astro.ps1
 ```
 
-Le script charge les variables de `.env`, démarre Astro avec `compose.yaml`,
-puis démarre le conteneur `garaged` s'il est arrêté et le connecte au réseau
-Airflow sous l'alias `garaged`. Il échoue si le conteneur Garage n'existe pas
-ou si le réseau Airflow actif ne peut pas être trouvé.
+Ajouter `GARAGE_RPC_SECRET` à `.env` avec une valeur aléatoire hexadécimale de
+64 caractères (par exemple `python -c "import secrets; print(secrets.token_hex(32))"`).
+Le script charge les variables de `.env` et démarre Astro avec `compose.yaml`,
+qui lance également Garage. Garage crée au premier démarrage le bucket
+`AWS_S3_BUCKET` et la clé d'accès définie par `AWS_ACCESS_KEY_ID` et
+`AWS_SECRET_ACCESS_KEY`. Sa configuration est générée par Compose et ses
+données restent persistées dans des volumes Docker.
 
 L'interface Airflow est disponible à l'adresse <http://localhost:8080/>. La
-base de métadonnées Airflow est exposée sur `localhost:5432`.
+base de métadonnées Airflow est exposée sur `localhost:5432`. L'endpoint S3 de
+Garage est exposé sur `localhost:3900`.
 
 Pour arrêter l'environnement Airflow :
 
@@ -114,7 +120,7 @@ dags/
 include/dbt/                Projet dbt et ses modèles
 streamlit/                  Application Streamlit
 tests/                      Tests des DAGs
-compose.yaml                Services Airflow et PostgreSQL de transport
+compose.yaml                Services Airflow, Garage et PostgreSQL
 compose.streamlit.yaml      Service Streamlit
-start-astro.ps1             Démarrage Astro et connexion à Garage
+start-astro.ps1             Démarrage d'Astro et de Garage
 ```
