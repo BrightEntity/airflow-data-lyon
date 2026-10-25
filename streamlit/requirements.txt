@@ -1,1 +1,5 @@
 streamlit
+sqlalchemy
+psycopg[binary]
+streamlit-autorefresh
+pydeck

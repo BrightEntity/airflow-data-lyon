@@ -1,43 +1,38 @@
 # Airflow Data Lyon
 
-Projet local de collecte et de transformation des données de mobilité de la
-Métropole de Lyon. Airflow orchestre l'ingestion depuis l'API Data Grand Lyon,
-le dépôt des fichiers bruts dans un stockage compatible S3 (Garage), leur
-chargement dans PostgreSQL, puis leur standardisation et les transformations
-dbt.
+Projet local de collecte, transformation et exposition des données de mobilité de la Métropole de Lyon.
+
+Le pipeline s'appuie sur Airflow pour orchestrer l'ingestion depuis l'API Data Grand Lyon, le stockage des fichiers bruts dans Garage (compatible S3), le chargement dans PostgreSQL, puis la normalisation et les transformations dbt. Une interface Streamlit peut ensuite être lancée pour exploiter les données de manière interactive.
+
+![image application streamlit](image.png)
 
 ## Architecture
 
-- **Airflow** exécute les DAGs définis dans `dags/`.
+- **Airflow** orchestre les DAGs et les tâches Python dans `dags/`.
 - **Data Grand Lyon** fournit les données de suivi des véhicules via son API.
-- **Garage** stocke les fichiers JSON bruts dans un bucket S3.
-- **PostgreSQL de transport** est disponible dans le réseau Docker sur le
-  service `postgres_transport` et sur le port local `5433`.
-- **PostgreSQL Airflow** stocke les métadonnées Airflow et est exposé sur le
-  port local `5432`.
-- **Garage** est démarré par Compose comme stockage compatible S3, accessible
-  depuis les conteneurs sur `http://garaged:3900` et depuis l'hôte sur
-  `http://localhost:3900`. Ses données sont persistées dans des volumes Docker.
+- **Garage** sert de stockage objet compatible S3 et reçoit les fichiers JSON bruts.
+- **PostgreSQL de transport** (`postgres_transport`) stocke les données métier et est exposé localement sur `127.0.0.1:5433`.
+- **PostgreSQL Airflow** stocke les métadonnées Airflow et est exposé localement sur `127.0.0.1:5432`.
 - **dbt** exécute les modèles du projet `include/dbt`.
-- **Streamlit** est une application distincte, démarrée à la demande sur le
-  port local `8501`.
+- **Streamlit** expose une petite application web sur `http://localhost:8501` lorsqu'elle est démarrée.
 
-Le DAG `dag_datagrandlyon_vehicle_monitoring` collecte les données, les dépose
-dans Garage, charge les données en staging puis appelle la procédure de
-standardisation PostgreSQL. Le DAG `dag_core_refresh` lance les modèles dbt.
+Les DAGs principaux sont :
+
+- `dag_datagrandlyon_vehicle_monitoring` : collecte les données, les stocke dans Garage, réalise le chargement staging puis lance la standardisation PostgreSQL.
+- `dag_core_refresh` : exécute les modèles dbt pour rafraîchir les tables de reporting.
 
 ## Prérequis
 
-- Docker Desktop démarré.
+Avant de démarrer le projet, vérifiez que vous avez :
+
+- Docker Desktop lancé.
 - [Astro CLI](https://www.astronomer.io/docs/astro/cli/install-cli) installé.
-- PowerShell pour utiliser `start-astro.ps1`.
-- Des identifiants API Data Grand Lyon et des identifiants pour le stockage S3
-  et PostgreSQL.
+- PowerShell disponible pour lancer `start-astro.ps1`.
+- Des identifiants API Data Grand Lyon ainsi que des accès S3/PostgreSQL valides.
 
 ## Configuration
 
-Créer un fichier `.env` à la racine du projet. Ce fichier est ignoré par Git :
-ne pas y mettre de secrets dans un fichier suivi par Git.
+Créer un fichier `.env` à la racine du projet. Ce fichier est ignoré par Git et ne doit pas contenir de secrets dans un dépôt suivi.
 
 | Variable | Utilisation |
 | --- | --- |
@@ -46,38 +41,61 @@ ne pas y mettre de secrets dans un fichier suivi par Git.
 | `AWS_ACCESS_KEY_ID` | Identifiant d'accès au stockage S3 |
 | `AWS_SECRET_ACCESS_KEY` | Clé secrète du stockage S3 |
 | `AWS_S3_BUCKET` | Nom du bucket qui reçoit les fichiers bruts |
-| `AWS_S3_URL` | Endpoint S3 joignable depuis les conteneurs Airflow, par exemple `http://garaged:3900` |
+| `AWS_S3_URL` | Endpoint S3 accessible depuis les conteneurs, par exemple `http://garaged:3900` |
 | `GARAGE_RPC_SECRET` | Secret hexadécimal de 64 caractères pour les communications internes de Garage |
-| `DB_HOST` | Hôte PostgreSQL joignable depuis Docker (par exemple `postgres_transport` pour le service local) |
-| `DB_PORT` | Port PostgreSQL depuis le réseau Docker (généralement `5432` pour `postgres_transport`) |
-| `DB_NAME` | Nom de la base de données de transport |
+| `DB_HOST` | Hôte PostgreSQL joignable depuis Docker, par exemple `postgres_transport` |
+| `DB_PORT` | Port PostgreSQL depuis le réseau Docker (en général `5432`) |
+| `DB_NAME` | Nom de la base de données métier |
 | `DB_SCHEMA` | Schéma PostgreSQL utilisé par dbt |
 | `DB_USER` | Utilisateur PostgreSQL |
 | `DB_PASSWORD` | Mot de passe PostgreSQL |
 
-Le profil dbt `dev` se connecte à PostgreSQL via `127.0.0.1:5433` depuis
-l'hôte. Le DAG dbt utilise le profil `prd`, configuré avec `DB_HOST`,
-`DB_PORT` et les autres variables ci-dessus.
+Exemple de fichier `.env` :
+
+```env
+DATASOURCE_DATA_GRAND_LYON_USERNAME=your_username
+DATASOURCE_DATA_GRAND_LYON_PASSWORD=your_password
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+AWS_S3_BUCKET=raw
+AWS_S3_URL=http://garaged:3900
+GARAGE_RPC_SECRET=<64-char-hex-string>
+DB_HOST=postgres_transport
+DB_PORT=5432
+DB_NAME=data_lyon
+DB_SCHEMA=core
+DB_USER=postgres
+DB_PASSWORD=postgres
+```
+
+Le profil dbt `dev` pointe vers PostgreSQL en local sur `127.0.0.1:5433`. Le DAG dbt utilise le profil `prd`, configuré à partir des variables `DB_HOST`, `DB_PORT` et des autres variables d'environnement ci-dessus.
 
 ## Démarrer Airflow et Garage
 
-Dans PowerShell, depuis la racine du projet :
+Depuis PowerShell, à la racine du projet :
 
 ```powershell
 .\start-astro.ps1
 ```
 
-Ajouter `GARAGE_RPC_SECRET` à `.env` avec une valeur aléatoire hexadécimale de
-64 caractères (par exemple `python -c "import secrets; print(secrets.token_hex(32))"`).
-Le script charge les variables de `.env` et démarre Astro avec `compose.yaml`,
-qui lance également Garage. Garage crée au premier démarrage le bucket
-`AWS_S3_BUCKET` et la clé d'accès définie par `AWS_ACCESS_KEY_ID` et
-`AWS_SECRET_ACCESS_KEY`. Sa configuration est générée par Compose et ses
-données restent persistées dans des volumes Docker.
+Le script charge les variables de `.env` puis lance Astro avec `compose.yaml`. Le fichier de composition démarre les services suivants :
 
-L'interface Airflow est disponible à l'adresse <http://localhost:8080/>. La
-base de métadonnées Airflow est exposée sur `localhost:5432`. L'endpoint S3 de
-Garage est exposé sur `localhost:3900`.
+- Airflow (API, scheduler, dag processor, triggerer)
+- PostgreSQL Airflow
+- Garage (stockage S3 compatible)
+- PostgreSQL de transport
+
+Le premier démarrage de Garage crée automatiquement le bucket configuré dans `AWS_S3_BUCKET`. Les données sont persistées dans des volumes Docker.
+
+Une fois démarré, l'interface Airflow est accessible à l'adresse :
+
+- <http://localhost:8080/>
+
+Les endpoints locaux utiles sont les suivants :
+
+- PostgreSQL Airflow : `localhost:5432`
+- PostgreSQL de transport : `localhost:5433`
+- Garage S3 : `http://localhost:3900`
 
 Pour arrêter l'environnement Airflow :
 
@@ -87,14 +105,23 @@ astro dev stop
 
 ## Démarrer Streamlit (optionnel)
 
-Dans un autre terminal, depuis la racine du projet :
+L'application Streamlit peut être démarrée dans un autre terminal :
+
+```powershell
+.\start-streamlit.ps1
+```
+
+ou directement via Docker :
 
 ```powershell
 docker compose -f compose.streamlit.yaml up --build
 ```
 
-L'application est disponible à l'adresse <http://localhost:8501/>. Pour
-l'arrêter, utilisez `Ctrl+C`, puis :
+L'application est ensuite disponible sur :
+
+- <http://localhost:8501/>
+
+Pour l'arrêter :
 
 ```powershell
 docker compose -f compose.streamlit.yaml down
@@ -102,8 +129,7 @@ docker compose -f compose.streamlit.yaml down
 
 ## Tests
 
-Les tests Airflow se trouvent dans `tests/`. Une fois l'environnement Astro
-démarré, les lancer avec :
+Les tests Airflow sont dans `tests/`. Une fois l'environnement Astro lancé, vous pouvez les exécuter avec :
 
 ```powershell
 astro dev pytest tests/
@@ -112,15 +138,31 @@ astro dev pytest tests/
 ## Structure du projet
 
 ```text
-dags/
-  raw_lake/                 Collecte et dépôt des fichiers bruts
-  staging/                  Chargement des données en staging
-  standardized_tables/      Standardisation PostgreSQL
-  routines/                 Fonctions partagées par les DAGs
-include/dbt/                Projet dbt et ses modèles
-streamlit/                  Application Streamlit
-tests/                      Tests des DAGs
-compose.yaml                Services Airflow, Garage et PostgreSQL
-compose.streamlit.yaml      Service Streamlit
-start-astro.ps1             Démarrage d'Astro et de Garage
+.
+├── dags/                         # DAGs Airflow et routines Python
+│   ├── raw_lake/                 # Collecte et stockage des fichiers bruts
+│   ├── staging/                  # Chargement des données en staging
+│   ├── standardized_tables/      # Standardisation PostgreSQL
+│   └── routines/                 # Fonctions partagées par les DAGs
+├── include/dbt/                 # Projet dbt et modèles SQL
+├── streamlit/                    # Application Streamlit
+├── tests/                        # Tests des DAGs
+├── .env                          # Variables de configuration locales (non versionné)
+├── compose.yaml                  # Services Airflow, Garage et PostgreSQL
+├── compose.streamlit.yaml        # Service Streamlit
+├── start-astro.ps1               # Démarrage d'Astro et de Garage
+├── start-streamlit.ps1           # Démarrage de Streamlit
+├── Dockerfile                    # Image de base du projet
+├── requirements.txt              # Dépendances Python du projet
+├── packages.txt                  # Paquets système de l'image Airflow
+├── README.md                     # Documentation du projet
+└── .gitignore                    # Fichiers ignorés par Git
 ```
+
+## Bonnes pratiques
+
+- Ne pas enregistrer de secrets dans le dépôt Git.
+- Générer un `GARAGE_RPC_SECRET` unique et aléatoire à chaque environnement local.
+- Vérifier les variables de connexion avant le premier lancement.
+- Garder le profil dbt local et le profil Airflow cohérents avec les ports et hôtes Docker utilisés.
+
