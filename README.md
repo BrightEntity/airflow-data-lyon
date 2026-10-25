@@ -1,60 +1,120 @@
-Overview
-========
+# Airflow Data Lyon
 
-Welcome to Astronomer! This project was generated after you ran 'astro dev init' using the Astronomer CLI. This readme describes the contents of the project, as well as how to run Apache Airflow on your local machine.
+Projet local de collecte et de transformation des données de mobilité de la
+Métropole de Lyon. Airflow orchestre l'ingestion depuis l'API Data Grand Lyon,
+le dépôt des fichiers bruts dans un stockage compatible S3 (Garage), leur
+chargement dans PostgreSQL, puis leur standardisation et les transformations
+dbt.
 
-Project Contents
-================
+## Architecture
 
-Your Astro project contains the following files and folders:
+- **Airflow** exécute les DAGs définis dans `dags/`.
+- **Data Grand Lyon** fournit les données de suivi des véhicules via son API.
+- **Garage** stocke les fichiers JSON bruts dans un bucket S3.
+- **PostgreSQL de transport** est disponible dans le réseau Docker sur le
+  service `postgres_transport` et sur le port local `5433`.
+- **PostgreSQL Airflow** stocke les métadonnées Airflow et est exposé sur le
+  port local `5432`.
+- **dbt** exécute les modèles du projet `include/dbt`.
+- **Streamlit** est une application distincte, démarrée à la demande sur le
+  port local `8501`.
 
-- dags: This folder contains the Python files for your Airflow Dags. By default, this directory includes one example Dag:
-    - `example_astronauts`: This Dag shows a simple ETL pipeline example that queries the list of astronauts currently in space from the Open Notify API and prints a statement for each astronaut. The Dag uses the TaskFlow API to define tasks in Python, and dynamic task mapping to dynamically print a statement for each astronaut. For more on how this Dag works, see our [Getting started tutorial](https://www.astronomer.io/docs/learn/get-started-with-airflow).
-- Dockerfile: This file contains a versioned Astro Runtime Docker image that provides a differentiated Airflow experience. If you want to execute other commands or overrides at runtime, specify them here.
-- include: This folder contains any additional files that you want to include as part of your project. It is empty by default.
-- packages.txt: Install OS-level packages needed for your project by adding them to this file. It is empty by default.
-- requirements.txt: Install Python packages needed for your project by adding them to this file. It is empty by default.
-- plugins: Add custom or community plugins for your project to this file. It is empty by default.
-- airflow_settings.yaml: Use this local-only file to specify Airflow Connections, Variables, and Pools instead of entering them in the Airflow UI as you develop Dags in this project.
+Le DAG `dag_datagrandlyon_vehicle_monitoring` collecte les données, les dépose
+dans Garage, charge les données en staging puis appelle la procédure de
+standardisation PostgreSQL. Le DAG `dag_core_refresh` lance les modèles dbt.
 
-Deploy Your Project Locally
-===========================
+## Prérequis
 
-Start Airflow on your local machine by running 'astro dev start'.
+- Docker Desktop démarré.
+- [Astro CLI](https://www.astronomer.io/docs/astro/cli/install-cli) installé.
+- PowerShell pour utiliser `start-astro.ps1`.
+- Un conteneur Garage déjà créé sous le nom `garaged`, avec un endpoint S3
+  accessible depuis le réseau Docker.
+- Des identifiants API Data Grand Lyon et des identifiants pour le stockage S3
+  et PostgreSQL.
 
-This command will spin up five Docker containers on your machine, each for a different Airflow component:
+## Configuration
 
-- Postgres: Airflow's Metadata Database
-- Scheduler: The Airflow component responsible for monitoring and triggering tasks
-- Dag Processor: The Airflow component responsible for parsing Dags
-- API Server: The Airflow component responsible for serving the Airflow UI and API
-- Triggerer: The Airflow component responsible for triggering deferred tasks
+Créer un fichier `.env` à la racine du projet. Ce fichier est ignoré par Git :
+ne pas y mettre de secrets dans un fichier suivi par Git.
 
-When all five containers are ready the command will open the browser to the Airflow UI at http://localhost:8080/. You should also be able to access your Postgres Database at 'localhost:5432/postgres' with username 'postgres' and password 'postgres'.
+| Variable | Utilisation |
+| --- | --- |
+| `DATASOURCE_DATA_GRAND_LYON_USERNAME` | Identifiant de l'API Data Grand Lyon |
+| `DATASOURCE_DATA_GRAND_LYON_PASSWORD` | Mot de passe de l'API Data Grand Lyon |
+| `AWS_ACCESS_KEY_ID` | Identifiant d'accès au stockage S3 |
+| `AWS_SECRET_ACCESS_KEY` | Clé secrète du stockage S3 |
+| `AWS_S3_BUCKET` | Nom du bucket qui reçoit les fichiers bruts |
+| `AWS_S3_URL` | Endpoint S3 joignable depuis les conteneurs Airflow, par exemple `http://garaged:3900` |
+| `DB_HOST` | Hôte PostgreSQL joignable depuis Docker (par exemple `postgres_transport` pour le service local) |
+| `DB_PORT` | Port PostgreSQL depuis le réseau Docker (généralement `5432` pour `postgres_transport`) |
+| `DB_NAME` | Nom de la base de données de transport |
+| `DB_SCHEMA` | Schéma PostgreSQL utilisé par dbt |
+| `DB_USER` | Utilisateur PostgreSQL |
+| `DB_PASSWORD` | Mot de passe PostgreSQL |
 
-Note: If you already have either of the above ports allocated, you can either [stop your existing Docker containers or change the port](https://www.astronomer.io/docs/astro/cli/troubleshoot-locally#ports-are-not-available-for-my-local-airflow-webserver).
+Le profil dbt `dev` se connecte à PostgreSQL via `127.0.0.1:5433` depuis
+l'hôte. Le DAG dbt utilise le profil `prd`, configuré avec `DB_HOST`,
+`DB_PORT` et les autres variables ci-dessus.
 
-Deploy Your Project to Astronomer
-=================================
+## Démarrer Airflow et Garage
 
-If you have an Astronomer account, pushing code to a Deployment on Astronomer is simple. For deploying instructions, refer to Astronomer documentation: https://www.astronomer.io/docs/astro/deploy-code/
-
-Contact
-=======
-
-The Astronomer CLI is maintained with love by the Astronomer team. To report a bug or suggest a change, reach out to our support.
-
-
-## Start Astro with Garage
-
-The `start-astro.ps1` script starts the local Astro environment, starts the existing
-`garaged` container if needed, and connects it to the active Astro Docker network
-with the `garaged` alias:
+Dans PowerShell, depuis la racine du projet :
 
 ```powershell
 .\start-astro.ps1
 ```
 
-Run this command from the project root in PowerShell. The Garage container must
-already exist and be named `garaged`. Set `AWS_S3_URL` in `.env` to the Garage S3
-endpoint reachable on the Docker network, for example `http://garaged:3900`.
+Le script charge les variables de `.env`, démarre Astro avec `compose.yaml`,
+puis démarre le conteneur `garaged` s'il est arrêté et le connecte au réseau
+Airflow sous l'alias `garaged`. Il échoue si le conteneur Garage n'existe pas
+ou si le réseau Airflow actif ne peut pas être trouvé.
+
+L'interface Airflow est disponible à l'adresse <http://localhost:8080/>. La
+base de métadonnées Airflow est exposée sur `localhost:5432`.
+
+Pour arrêter l'environnement Airflow :
+
+```powershell
+astro dev stop
+```
+
+## Démarrer Streamlit (optionnel)
+
+Dans un autre terminal, depuis la racine du projet :
+
+```powershell
+docker compose -f compose.streamlit.yaml up --build
+```
+
+L'application est disponible à l'adresse <http://localhost:8501/>. Pour
+l'arrêter, utilisez `Ctrl+C`, puis :
+
+```powershell
+docker compose -f compose.streamlit.yaml down
+```
+
+## Tests
+
+Les tests Airflow se trouvent dans `tests/`. Une fois l'environnement Astro
+démarré, les lancer avec :
+
+```powershell
+astro dev pytest tests/
+```
+
+## Structure du projet
+
+```text
+dags/
+  raw_lake/                 Collecte et dépôt des fichiers bruts
+  staging/                  Chargement des données en staging
+  standardized_tables/      Standardisation PostgreSQL
+  routines/                 Fonctions partagées par les DAGs
+include/dbt/                Projet dbt et ses modèles
+streamlit/                  Application Streamlit
+tests/                      Tests des DAGs
+compose.yaml                Services Airflow et PostgreSQL de transport
+compose.streamlit.yaml      Service Streamlit
+start-astro.ps1             Démarrage Astro et connexion à Garage
+```

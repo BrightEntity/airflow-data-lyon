@@ -1,0 +1,12 @@
+services:
+  streamlit:
+    build:
+      context: ./streamlit
+    ports:
+      - "127.0.0.1:8501:8501"
+    networks:
+      - airflow
+
+networks:
+  airflow:
+    driver: bridge
