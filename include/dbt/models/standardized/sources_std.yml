@@ -1,0 +1,82 @@
+sources:
+  - name: std-data-grand-lyon
+    schema: standardized
+    description: "Data sources for the data_lyon project"
+    tables:
+      - name: std_datagrandlyon_vehicle_monitoring
+        description: "Vehicle monitoring data from the Grand Lyon open data portal"
+        columns:
+          - name: vehicle_monitoring_sk
+            data_type: BIGINT
+            description: "Clé technique unique de l'enregistrement, générée par la base de données."
+            data_tests:
+              - not_null
+              - unique
+          - name: vehicle_ref
+            data_type: TEXT
+            description: "Référence métier identifiant le véhicule."
+            data_tests:
+              - not_null
+          - name: valid_until_time
+            data_type: TIMESTAMPTZ
+            description: "Date et heure jusqu'à laquelle les données de supervision du véhicule sont valides."
+          - name: recorded_at_time
+            data_type: TIMESTAMPTZ
+            description: "Date et heure auxquelles les données de supervision ont été enregistrées."
+          - name: line_ref
+            data_type: TEXT
+            description: "Référence de la ligne de transport associée au véhicule."
+          - name: direction
+            data_type: TEXT
+            description: "Direction de circulation du véhicule."
+          - name: vehicle_status
+            data_type: TEXT
+            description: "État du véhicule tel que fourni par les données de supervision."
+          - name: delay
+            data_type: TEXT
+            description: "Retard du véhicule tel que fourni par la source."
+          - name: longitude
+            data_type: NUMERIC(12, 8)
+            description: "Longitude de la position du véhicule, en degrés décimaux."
+          - name: latitude
+            data_type: NUMERIC(12, 8)
+            description: "Latitude de la position du véhicule, en degrés décimaux."
+          - name: stop_point_ref
+            data_type: TEXT
+            description: "Référence du point d'arrêt associé au véhicule."
+          - name: response_timestamp
+            data_type: TIMESTAMPTZ
+            description: "Date et heure de la réponse SIRI."
+          - name: producer_ref
+            data_type: TEXT
+            description: "Référence du producteur des données SIRI."
+          - name: response_message_identifier
+            data_type: TEXT
+            description: "Identifiant du message de réponse SIRI."
+          - name: more_data
+            data_type: BOOLEAN
+            description: "Indique si la réponse SIRI signale la disponibilité de données supplémentaires."
+          - name: siri_version
+            data_type: TEXT
+            description: "Version du format SIRI utilisée par la réponse."
+          - name: valid_from
+            data_type: TIMESTAMPTZ
+            description: "Début de la période de validité de cette version de l'enregistrement (SCD Type 2)."
+            data_tests:
+              - not_null
+          - name: valid_to
+            data_type: TIMESTAMPTZ
+            description: "Fin de la période de validité de cette version ; NULL indique qu'aucune fin n'est renseignée."
+          - name: is_current
+            data_type: BOOLEAN
+            description: "Indique si cette version de l'enregistrement est la version courante."
+            data_tests:
+              - not_null
+          - name: attribute_hash
+            data_type: TEXT
+            description: "Empreinte des attributs utilisée pour détecter les changements entre versions."
+            data_tests:
+              - not_null
+          - name: loaded_at
+            data_type: TIMESTAMPTZ
+            description: "Date et heure de chargement de l'enregistrement dans la table."
